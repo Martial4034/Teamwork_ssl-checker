@@ -99,43 +99,66 @@ app.delete("/domains/:index", (req, res) => {
     }
   });
 });
-const checkSsl = async (domain) => {
-  try {
-    const result = await sslChecker(domain);
-    const currentDate = new Date();
-    const validUntilDate = new Date(result.validTo);
 
-    const isValid = validUntilDate > currentDate;
-
-    return {
-      domain,
-      hasValidCertificate: isValid, // Utilise la vérification de date personnalisée
-      validUntil: result.validTo,
-    };
-  } catch (err) {
-    return {
-      domain,
-      hasValidCertificate: false,
-      validUntil: null,
-      error: err.message,
-    };
-  }
-};
-
-app.get("/check-ssl", async (req, res) => {
-  const domain = req.query.domain;
-  if (!domain) {
-    return res.status(400).json({ error: "Domain is required" });
-  }
-
-  try {
-    const result = await checkSsl(domain);
-    res.json(result);
-  } catch (error) {
-    console.error(`Error checking SSL for ${domain}:`, error);
-    res.status(500).json({ error: error.message });
-  }
-});
+const checkSsl = async (domain, port) => {
+    return new Promise((resolve, reject) => {
+      const reqOptions = {
+        hostname: domain,
+        port: port,
+        method: 'GET',
+        rejectUnauthorized: false,
+        servername: domain, // Important pour SNI (Server Name Indication)
+        timeout: 120000 // Timeout de 2 minutes
+      };
+  
+      const httpsReq = https.request(reqOptions, (response) => {
+        const cert = response.socket.getPeerCertificate();
+        if (cert && Object.keys(cert).length > 0) {
+          const currentDate = new Date();
+          const validUntilDate = new Date(cert.valid_to);
+          const isValid = validUntilDate > currentDate;
+          resolve({
+            domain,
+            hasValidCertificate: isValid,
+            validUntil: cert.valid_to
+          });
+        } else {
+          resolve({
+            domain,
+            hasValidCertificate: false,
+            validUntil: null
+          });
+        }
+      });
+  
+      httpsReq.on('error', (err) => {
+        if (port === 443) {
+          // Si le port 443 échoue, essayez le port 5010
+          checkSsl(domain, 5010).then(resolve).catch(reject);
+        } else {
+          reject(new Error('Failed to establish HTTPS connection: ' + err.message));
+        }
+      });
+  
+      httpsReq.end();
+    });
+  };
+  
+  app.get('/check-ssl', async (req, res) => {
+    const domain = req.query.domain;
+    if (!domain) {
+      return res.status(400).json({ error: 'Domain is required' });
+    }
+  
+    try {
+      const result = await checkSsl(domain, 443);
+      res.json(result);
+    } catch (error) {
+      console.error(`Error checking SSL for ${domain}:`, error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
 // The "catchall" handler: for any request that doesn't
 // match one above, send back React's index.html file.
 app.get("*", (req, res) => {

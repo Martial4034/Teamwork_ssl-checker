@@ -1,21 +1,19 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import axios from 'axios';
 import './App.css';
 
 function App() {
   const [domains, setDomains] = useState([]);
   const [newDomain, setNewDomain] = useState({ fqdn: '', privateIp: '', owner: '' });
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const pendingRequests = useRef({});
 
-  // Function to update domain data with certificate information
   const updateDomainData = (index, newInfo) => {
     setDomains(prevDomains => {
       const updatedDomains = [...prevDomains];
       updatedDomains[index] = {
         ...updatedDomains[index],
-        publicIp: newInfo.ipAddress || 'Not available',
-        owner: newInfo.serverName || 'Not available',
         certificate: {
           valid: newInfo.hasValidCertificate ? 'Valid' : 'Invalid',
           expires: newInfo.validUntil || 'Unknown'
@@ -25,43 +23,41 @@ function App() {
     });
   };
 
-  // Function to check SSL certificate for a given domain
-  const checkCertificate = (domain, index) => {
+  const checkCertificate = useCallback((domain, index) => {
+    if (pendingRequests.current[domain.fqdn]) {
+      return;
+    }
+
+    pendingRequests.current[domain.fqdn] = true;
+
+    setIsLoading(true); // Commencer le chargement
+
     axios.get(`/check-ssl?domain=${domain.fqdn}`)
       .then(response => {
-        setDomains(prevDomains => {
-          const updatedDomains = [...prevDomains];
-          updatedDomains[index] = {
-            ...updatedDomains[index],
-            certificate: {
-              hasValidCertificate: response.data.hasValidCertificate,
-              validUntil: response.data.validUntil || 'Unknown'
-            }
-          };
-          return updatedDomains;
-        });
+        console.log(`Received response for ${domain.fqdn}:`, response.data);
+        updateDomainData(index, response.data);
       })
       .catch(error => {
-        console.error('Error fetching SSL info:', error);
-        setDomains(prevDomains => {
-          const updatedDomains = [...prevDomains];
-          updatedDomains[index] = {
-            ...updatedDomains[index],
-            certificate: { hasValidCertificate: false, validUntil: 'Error fetching data' }
-          };
-          return updatedDomains;
+        console.error(`Error fetching SSL info for ${domain.fqdn}:`, error);
+        updateDomainData(index, {
+          hasValidCertificate: false,
+          validUntil: 'Error fetching data'
         });
+      })
+      .finally(() => {
+        delete pendingRequests.current[domain.fqdn];
+        setIsLoading(false); // Terminer le chargement
       });
-  };
-  
+  }, []);
 
-  // Fetch domains and their SSL status on mount
   useEffect(() => {
     const fetchDomains = () => {
-      setIsLoading(true);
       axios.get('/domains')
         .then(response => {
-          const loadedDomains = response.data;
+          const loadedDomains = response.data.map(domain => ({
+            ...domain,
+            certificate: { valid: 'Validating...', expires: 'Validating...' }
+          }));
           setDomains(loadedDomains);
           loadedDomains.forEach((domain, index) => checkCertificate(domain, index));
         })
@@ -72,9 +68,8 @@ function App() {
         .finally(() => setIsLoading(false));
     };
     fetchDomains();
-  }, []);
+  }, [checkCertificate]);
 
-  // Handle new domain addition
   const handleAddDomain = () => {
     if (!newDomain.fqdn || !newDomain.privateIp || !newDomain.owner) {
       setError('All fields must be filled!');
@@ -98,50 +93,51 @@ function App() {
       });
   };
 
-  // Delete a domain
   const handleDelete = (index) => {
-    setIsLoading(true);
     axios.delete(`/domains/${index}`)
       .then(response => {
         setDomains(domains.filter((_, i) => i !== index));
       })
-      .catch(error => {
-        console.error('Error deleting domain:', error);
-        setError('Failed to delete domain');
-      })
-      .finally(() => setIsLoading(false));
+      .catch(error => console.error('Error deleting domain:', error));
   };
 
-  // Update a domain
   const handleUpdate = (index) => {
     const updatedOwner = prompt("Enter new owner name:", domains[index].owner);
-    if (updatedOwner && updatedOwner !== domains[index].owner) {
-      setIsLoading(true);
+    if (updatedOwner !== null) {
       const updatedDomain = { ...domains[index], owner: updatedOwner };
       axios.put(`/domains/${index}`, updatedDomain)
         .then(response => {
-          const updatedDomains = [...domains];
-          updatedDomains[index] = updatedDomain;
-          setDomains(updatedDomains);
+          const newDomains = [...domains];
+          newDomains[index] = updatedDomain;
+          setDomains(newDomains);
         })
-        .catch(error => {
-          console.error('Error updating domain:', error);
-          setError('Failed to update domain');
-        })
-        .finally(() => setIsLoading(false));
+        .catch(error => console.error('Error updating domain:', error));
     }
   };
 
   return (
     <div className="container mx-auto p-4">
-      {error && <p className="text-red-500">{error}</p>}
-      {isLoading && <p>Loading...</p>}
-      <div className="mb-4">
-        <input type="text" placeholder="FQDN" value={newDomain.fqdn} onChange={(e) => setNewDomain({ ...newDomain, fqdn: e.target.value })} />
-        <input type="text" placeholder="Private IP" value={newDomain.privateIp} onChange={(e) => setNewDomain({ ...newDomain, privateIp: e.target.value })} />
-        <input type="text" placeholder="Owner" value={newDomain.owner} onChange={(e) => setNewDomain({ ...newDomain, owner: e.target.value })} />
-        <button onClick={handleAddDomain}>Add Domain</button>
-      </div>
+      {isLoading && <div>Loading...</div>}
+      <input
+        type="text"
+        placeholder="FQDN"
+        value={newDomain.fqdn}
+        onChange={(e) => setNewDomain({ ...newDomain, fqdn: e.target.value })}
+      />
+      <input
+        type="text"
+        placeholder="Private IP"
+        value={newDomain.privateIp}
+        onChange={(e) => setNewDomain({ ...newDomain, privateIp: e.target.value })}
+      />
+      <input
+        type="text"
+        placeholder="Owner"
+        value={newDomain.owner}
+        onChange={(e) => setNewDomain({ ...newDomain, owner: e.target.value })}
+      />
+      <button onClick={handleAddDomain}>Add Domain</button>
+
       <div className="overflow-x-auto relative">
         <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
           <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
@@ -164,8 +160,8 @@ function App() {
                   <button onClick={() => handleDelete(index)}>Delete</button>
                 </td>
                 <td className="py-4 px-6">
-                  <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${domain.certificate?.hasValidCertificate ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                    {domain.certificate?.hasValidCertificate ? 'Valid' : 'Invalid'} (Expires: {domain.certificate?.validUntil || 'N/A'})
+                  <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${domain.certificate.valid === 'Valid' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                    {domain.certificate.valid} (Expires: {domain.certificate.expires})
                   </span>
                 </td>
               </tr>
