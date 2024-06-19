@@ -148,8 +148,7 @@ const checkSsl = (domain) => {
       res.status(500).json({ error: error.message });
     }
   });
-
-
+  
 
 // The "catchall" handler: for any request that doesn't
 // match one above, send back React's index.html file.
