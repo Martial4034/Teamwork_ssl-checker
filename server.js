@@ -12,6 +12,8 @@ app.use(express.json());
 // Serve static files from the React app
 app.use(express.static(path.join(__dirname, "build")));
 
+
+
 app.get("/domains", (req, res) => {
   fs.readFile(DATA_FILE, (err, data) => {
     if (err) {
@@ -100,61 +102,52 @@ app.delete("/domains/:index", (req, res) => {
   });
 });
 
-const checkSsl = async (domain, port) => {
-    return new Promise((resolve, reject) => {
-      const reqOptions = {
-        hostname: domain,
-        port: port,
-        method: 'GET',
-        rejectUnauthorized: false,
-        servername: domain, // Important pour SNI (Server Name Indication)
-        timeout: 120000 // Timeout de 2 minutes
-      };
+const checkSsl = async (domain) => {
+    try {
+      let result = await sslChecker(domain, { method: 'GET', port: 443 });
+      
+      if (!result.valid || !result.validTo) {
+        // If the certificate is not valid or no validTo date is provided, check port 5010
+        result = await sslChecker(domain, { method: 'GET', port: 5010 });
+      }
+      
+      if (result.valid && result.validTo) {
+        const currentDate = new Date();
+        const validUntilDate = new Date(result.validTo);
+        const daysRemaining = (validUntilDate - currentDate) / (1000 * 60 * 60 * 24);
   
-      const httpsReq = https.request(reqOptions, (response) => {
-        const cert = response.socket.getPeerCertificate();
-        if (cert && Object.keys(cert).length > 0) {
-          const currentDate = new Date();
-          const validUntilDate = new Date(cert.valid_to);
-          const isValid = validUntilDate > currentDate;
-  
-          let certificateStatus = 'Invalid';
-          if (isValid) {
-            const daysRemaining = (validUntilDate - currentDate) / (1000 * 60 * 60 * 24);
-            if (daysRemaining <= 7) {
-              certificateStatus = 'Expiring Soon';
-            } else {
-              certificateStatus = 'Valid';
-            }
+        let certificateStatus = 'Invalid';
+        if (daysRemaining > 0) {
+          if (daysRemaining <= 7) {
+            certificateStatus = 'Expiring Soon';
+          } else {
+            certificateStatus = 'Valid';
           }
-  
-          resolve({
-            domain,
-            hasValidCertificate: isValid,
-            validUntil: cert.valid_to,
-            certificateStatus
-          });
-        } else {
-          resolve({
-            domain,
-            hasValidCertificate: false,
-            validUntil: null,
-            certificateStatus: 'Invalid'
-          });
         }
-      });
   
-      httpsReq.on('error', (err) => {
-        if (port === 443) {
-          // Si le port 443 échoue, essayez le port 5010
-          checkSsl(domain, 5010).then(resolve).catch(reject);
-        } else {
-          reject(new Error('Failed to establish HTTPS connection: ' + err.message));
-        }
-      });
-  
-      httpsReq.end();
-    });
+        return {
+          domain,
+          hasValidCertificate: certificateStatus !== 'Invalid',
+          validUntil: result.validTo,
+          certificateStatus
+        };
+      } else {
+        return {
+          domain,
+          hasValidCertificate: false,
+          validUntil: null,
+          certificateStatus: 'Invalid'
+        };
+      }
+    } catch (error) {
+      console.error(`Error checking SSL for ${domain}:`, error);
+      return {
+        domain,
+        hasValidCertificate: false,
+        validUntil: null,
+        certificateStatus: 'Invalid'
+      };
+    }
   };
   
   app.get('/check-ssl', async (req, res) => {
