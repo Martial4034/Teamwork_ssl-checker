@@ -102,45 +102,48 @@ app.delete("/domains/:index", (req, res) => {
   });
 });
 
+// Fonction pour introduire un délai
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 const checkSsl = async (domain) => {
-    try {
-      let result = await sslChecker(domain, { method: 'GET', port: 443 });
-      
-      if (!result.valid || !result.validTo) {
-        // If the certificate is not valid or no validTo date is provided, check port 5010
-        result = await sslChecker(domain, { method: 'GET', port: 5010 });
-      }
-      
-      if (result.valid && result.validTo) {
-        const currentDate = new Date();
-        const validUntilDate = new Date(result.validTo);
-        const daysRemaining = (validUntilDate - currentDate) / (1000 * 60 * 60 * 24);
-  
-        let certificateStatus = 'Invalid';
-        if (daysRemaining > 0) {
-          if (daysRemaining <= 7) {
-            certificateStatus = 'Expiring Soon';
-          } else {
-            certificateStatus = 'Valid';
-          }
+  try {
+    // Première tentative de vérification sur le port 443
+    let result = await sslChecker(domain, { method: 'GET', port: 443 });
+
+    if (!result.valid || !result.validTo) {
+      // Introduire un délai avant la deuxième tentative
+      await delay(5000); // Délai de 5 secondes
+
+      // Deuxième tentative de vérification sur le port 443
+      result = await sslChecker(domain, { method: 'GET', port: 443 });
+    }
+
+    if (!result.valid || !result.validTo) {
+      // Si le certificat n'est toujours pas valide ou aucune date de validité n'est fournie, vérifier le port 5010
+      result = await sslChecker(domain, { method: 'GET', port: 5010 });
+    }
+
+    if (result.valid && result.validTo) {
+      const currentDate = new Date();
+      const validUntilDate = new Date(result.validTo);
+      const daysRemaining = (validUntilDate - currentDate) / (1000 * 60 * 60 * 24);
+
+      let certificateStatus = 'Invalid';
+      if (daysRemaining > 0) {
+        if (daysRemaining <= 7) {
+          certificateStatus = 'Expiring Soon';
+        } else {
+          certificateStatus = 'Valid';
         }
-  
-        return {
-          domain,
-          hasValidCertificate: certificateStatus !== 'Invalid',
-          validUntil: result.validTo,
-          certificateStatus
-        };
-      } else {
-        return {
-          domain,
-          hasValidCertificate: false,
-          validUntil: null,
-          certificateStatus: 'Invalid'
-        };
       }
-    } catch (error) {
-      console.error(`Error checking SSL for ${domain}:`, error);
+
+      return {
+        domain,
+        hasValidCertificate: certificateStatus !== 'Invalid',
+        validUntil: result.validTo,
+        certificateStatus
+      };
+    } else {
       return {
         domain,
         hasValidCertificate: false,
@@ -148,22 +151,31 @@ const checkSsl = async (domain) => {
         certificateStatus: 'Invalid'
       };
     }
-  };
-  
-  app.get('/check-ssl', async (req, res) => {
-    const domain = req.query.domain;
-    if (!domain) {
-      return res.status(400).json({ error: 'Domain is required' });
-    }
-  
-    try {
-      const result = await checkSsl(domain, 443);
-      res.json(result);
-    } catch (error) {
-      console.error(`Error checking SSL for ${domain}:`, error);
-      res.status(500).json({ error: error.message });
-    }
-  });
+  } catch (error) {
+    console.error(`Error checking SSL for ${domain}:`, error);
+    return {
+      domain,
+      hasValidCertificate: false,
+      validUntil: null,
+      certificateStatus: 'Invalid'
+    };
+  }
+};
+
+app.get('/check-ssl', async (req, res) => {
+  const domain = req.query.domain;
+  if (!domain) {
+    return res.status(400).json({ error: 'Domain is required' });
+  }
+
+  try {
+    const result = await checkSsl(domain);
+    res.json(result);
+  } catch (error) {
+    console.error(`Error checking SSL for ${domain}:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // The "catchall" handler: for any request that doesn't
 // match one above, send back React's index.html file.
