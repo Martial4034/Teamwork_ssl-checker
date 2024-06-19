@@ -8,5 +8,10 @@
     "fqdn": "ipsec.teamwork.net",
     "privateIp": "10.230.18.61",
     "owner": "Cedric"
+  },
+  {
+    "fqdn": "myssl.teamwork.net",
+    "privateIp": "80.80.228.226",
+    "owner": "Team R&S"
   }
 ]
