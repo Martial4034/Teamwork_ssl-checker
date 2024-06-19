@@ -1,22 +1,16 @@
 const express = require('express');
-const cors = require('cors');
 const https = require('https');
 const fs = require('fs');
+const path = require('path');
 const app = express();
-const port = 5006;
+const port = process.env.PORT || 5006;
 const DATA_FILE = './data.json';
 
-// Configuration du CORS pour accepter toutes les origines et toutes les headers
-app.use(cors({
-  origin: '*',  // Autorise toutes les origines
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],  // Autorise toutes les méthodes
-  allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'x-access-token', 'X-Requested-With', 'Accept'],
-  credentials: true  // Permet le support des credentials
-}));
+app.use(express.json());
 
-app.use(express.json()); // Pour parser les requêtes JSON
+// Serve static files from the React app
+app.use(express.static(path.join(__dirname, 'build')));
 
-// Lire les données
 app.get('/domains', (req, res) => {
   fs.readFile(DATA_FILE, (err, data) => {
     if (err) {
@@ -27,7 +21,6 @@ app.get('/domains', (req, res) => {
   });
 });
 
-// Ajouter une entrée
 app.post('/domains', (req, res) => {
   if (!req.body.fqdn || !req.body.privateIp || !req.body.owner) {
     return res.status(400).send('Missing fields');
@@ -39,7 +32,7 @@ app.post('/domains', (req, res) => {
       res.status(500).send('Error reading data file');
       return;
     }
-    const domains = JSON.parse(data || '[]'); // Handle null data case
+    const domains = JSON.parse(data || '[]');
     domains.push(newDomain);
     fs.writeFile(DATA_FILE, JSON.stringify(domains, null, 2), (err) => {
       if (err) {
@@ -51,13 +44,12 @@ app.post('/domains', (req, res) => {
   });
 });
 
-// Modifier une entrée
 app.put('/domains/:index', (req, res) => {
   const index = parseInt(req.params.index);
   if (isNaN(index)) {
     return res.status(400).send('Invalid index');
   }
-  
+
   const updatedDomain = req.body;
   fs.readFile(DATA_FILE, (err, data) => {
     if (err) {
@@ -80,7 +72,6 @@ app.put('/domains/:index', (req, res) => {
   });
 });
 
-// Supprimer une entrée
 app.delete('/domains/:index', (req, res) => {
   const index = parseInt(req.params.index);
   if (isNaN(index)) {
@@ -108,43 +99,62 @@ app.delete('/domains/:index', (req, res) => {
   });
 });
 
-// Vérifier le certificat SSL
-app.get('/check-ssl', (req, res) => {
-  const domain = req.query.domain;
-  if (!domain) {
-    return res.status(400).json({ error: 'Domain is required' });
-  }
-
-  const reqOptions = {
-    hostname: domain,
-    port: 443,
-    method: 'GET',
-    rejectUnauthorized: false
+const checkSsl = (domain) => {
+    return new Promise((resolve, reject) => {
+      const reqOptions = {
+        hostname: domain,
+        port: 443,
+        method: 'GET',
+        rejectUnauthorized: false,
+        servername: domain // Important pour SNI (Server Name Indication)
+      };
+  
+      const httpsReq = https.request(reqOptions, (response) => {
+        const cert = response.socket.getPeerCertificate();
+        if (cert && Object.keys(cert).length > 0) {
+          resolve({
+            domain,
+            hasValidCertificate: true,
+            validUntil: cert.valid_to
+          });
+        } else {
+          resolve({
+            domain,
+            hasValidCertificate: false,
+            validUntil: null
+          });
+        }
+      });
+  
+      httpsReq.on('error', (err) => {
+        reject(new Error('Failed to establish HTTPS connection: ' + err.message));
+      });
+  
+      httpsReq.end();
+    });
   };
-
-  const httpsReq = https.request(reqOptions, (response) => {
-    const cert = response.socket.getPeerCertificate();
-    if (cert && Object.keys(cert).length > 0) {
-      return res.json({
-        domain,
-        hasValidCertificate: true,
-        validUntil: cert.valid_to
-      });
-    } else {
-      return res.json({
-        domain,
-        hasValidCertificate: false,
-        validUntil: null
-      });
+  
+  app.get('/check-ssl', async (req, res) => {
+    const domain = req.query.domain;
+    if (!domain) {
+      return res.status(400).json({ error: 'Domain is required' });
+    }
+  
+    try {
+      const result = await checkSsl(domain);
+      res.json(result);
+    } catch (error) {
+      console.error(`Error checking SSL for ${domain}:`, error);
+      res.status(500).json({ error: error.message });
     }
   });
 
-  httpsReq.on('error', (err) => {
-    console.error('HTTPS Request Error:', err);
-    res.status(500).json({ error: 'Failed to establish HTTPS connection', details: err.message });
-  });
 
-  httpsReq.end();
+
+// The "catchall" handler: for any request that doesn't
+// match one above, send back React's index.html file.
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname + '/build/index.html'));
 });
 
 app.listen(port, () => {

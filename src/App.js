@@ -27,7 +27,7 @@ function App() {
 
   // Function to check SSL certificate for a given domain
   const checkCertificate = (domain, index) => {
-    axios.get(`http://10.230.18.61:5006/check-ssl?domain=${domain.fqdn}`)
+    axios.get(`/check-ssl?domain=${domain.fqdn}`)
       .then(response => {
         setDomains(prevDomains => {
           const updatedDomains = [...prevDomains];
@@ -59,7 +59,7 @@ function App() {
   useEffect(() => {
     const fetchDomains = () => {
       setIsLoading(true);
-      axios.get('http://10.230.18.61:5006/domains')
+      axios.get('/domains')
         .then(response => {
           const loadedDomains = response.data;
           setDomains(loadedDomains);
@@ -82,7 +82,7 @@ function App() {
     }
 
     setIsLoading(true);
-    axios.post('http://10.230.18.61:5006/domains', newDomain)
+    axios.post('/domains', newDomain)
       .then(response => {
         const updatedDomains = [...domains, { ...newDomain, certificate: { valid: 'Validating...', expires: 'Validating...' } }];
         setDomains(updatedDomains);
@@ -101,7 +101,7 @@ function App() {
   // Delete a domain
   const handleDelete = (index) => {
     setIsLoading(true);
-    axios.delete(`http://10.230.18.61:5006/domains/${index}`)
+    axios.delete(`/domains/${index}`)
       .then(response => {
         setDomains(domains.filter((_, i) => i !== index));
       })
@@ -118,7 +118,7 @@ function App() {
     if (updatedOwner && updatedOwner !== domains[index].owner) {
       setIsLoading(true);
       const updatedDomain = { ...domains[index], owner: updatedOwner };
-      axios.put(`http://10.230.18.61:5006/domains/${index}`, updatedDomain)
+      axios.put(`/domains/${index}`, updatedDomain)
         .then(response => {
           const updatedDomains = [...domains];
           updatedDomains[index] = updatedDomain;
