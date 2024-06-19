@@ -102,9 +102,14 @@ app.delete("/domains/:index", (req, res) => {
 const checkSsl = async (domain) => {
   try {
     const result = await sslChecker(domain);
+    const currentDate = new Date();
+    const validUntilDate = new Date(result.validTo);
+
+    const isValid = validUntilDate > currentDate;
+
     return {
       domain,
-      hasValidCertificate: result.valid,
+      hasValidCertificate: isValid, // Utilise la vérification de date personnalisée
       validUntil: result.validTo,
     };
   } catch (err) {
@@ -131,13 +136,11 @@ app.get("/check-ssl", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 // The "catchall" handler: for any request that doesn't
 // match one above, send back React's index.html file.
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname + "/build/index.html"));
 });
-
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
