@@ -117,16 +117,29 @@ const checkSsl = async (domain, port) => {
           const currentDate = new Date();
           const validUntilDate = new Date(cert.valid_to);
           const isValid = validUntilDate > currentDate;
+  
+          let certificateStatus = 'Invalid';
+          if (isValid) {
+            const daysRemaining = (validUntilDate - currentDate) / (1000 * 60 * 60 * 24);
+            if (daysRemaining <= 7) {
+              certificateStatus = 'Expiring Soon';
+            } else {
+              certificateStatus = 'Valid';
+            }
+          }
+  
           resolve({
             domain,
             hasValidCertificate: isValid,
-            validUntil: cert.valid_to
+            validUntil: cert.valid_to,
+            certificateStatus
           });
         } else {
           resolve({
             domain,
             hasValidCertificate: false,
-            validUntil: null
+            validUntil: null,
+            certificateStatus: 'Invalid'
           });
         }
       });
@@ -158,7 +171,7 @@ const checkSsl = async (domain, port) => {
       res.status(500).json({ error: error.message });
     }
   });
-  
+
 // The "catchall" handler: for any request that doesn't
 // match one above, send back React's index.html file.
 app.get("*", (req, res) => {

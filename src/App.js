@@ -15,7 +15,7 @@ function App() {
       updatedDomains[index] = {
         ...updatedDomains[index],
         certificate: {
-          valid: newInfo.hasValidCertificate ? 'Valid' : 'Invalid',
+          valid: newInfo.hasValidCertificate ? newInfo.certificateStatus : 'Invalid',
           expires: newInfo.validUntil || 'Unknown'
         }
       };
@@ -41,7 +41,8 @@ function App() {
         console.error(`Error fetching SSL info for ${domain.fqdn}:`, error);
         updateDomainData(index, {
           hasValidCertificate: false,
-          validUntil: 'Error fetching data'
+          validUntil: 'Error fetching data',
+          certificateStatus: 'Invalid'
         });
       })
       .finally(() => {
@@ -160,7 +161,11 @@ function App() {
                   <button onClick={() => handleDelete(index)}>Delete</button>
                 </td>
                 <td className="py-4 px-6">
-                  <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${domain.certificate.valid === 'Valid' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                  <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                    domain.certificate.valid === 'Valid' ? 'bg-green-100 text-green-800' : 
+                    domain.certificate.valid === 'Expiring Soon' ? 'bg-yellow-100 text-yellow-800' : 
+                    'bg-red-100 text-red-800'
+                  }`}>
                     {domain.certificate.valid} (Expires: {domain.certificate.expires})
                   </span>
                 </td>
